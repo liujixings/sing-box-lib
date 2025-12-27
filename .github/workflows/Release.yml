@@ -2,15 +2,9 @@ name: Release
 
 on:
   workflow_dispatch:
-    inputs:
-      version:
-        description: "Release version"
-        required: true
-        type: string
-      tag:
-        description: "Git Tag to checkout"
-        required: true
-        type: string
+  push:
+    paths:
+      - version
 
 jobs:
   release:
@@ -24,18 +18,25 @@ jobs:
       # --- Check out main repository (actions/checkout@v4) ---
       - uses: actions/checkout@v4
 
+      - name: Get Sing-Box version
+        run: |
+          if [ -f version ]; then
+            tag=$(cat version)
+            echo "tag=${tag}" >> $GITHUB_ENV
+            echo "latest_version=${tag#v}" >> $GITHUB_ENV
+          fi
       # --- Check out sing-box source at the requested tag ---
       - uses: actions/checkout@v4
         with:
           repository: SagerNet/sing-box
           path: box
-          ref: ${{ github.event.inputs.tag }}
+          ref: ${{ env.tag }}
 
       # --- Set up Go (actions/setup-go@v5) ---
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.23.1"
+          go-version: "1.23"
 
       # --- Set up Node (actions/setup-node@v4) ---
       - name: Setup Node
@@ -82,7 +83,7 @@ jobs:
           echo "  targets: [" >> Package.swift
           echo "    .binaryTarget(" >> Package.swift
           echo "      name: \"Libbox\"," >> Package.swift
-          echo "      url: \"https://github.com/EbrahimTahernejad/sing-box-lib/releases/download/${{ github.event.inputs.version }}/Libbox.xcframework.zip\"," >> Package.swift
+          echo "      url: \"https://github.com/EbrahimTahernejad/sing-box-lib/releases/download/${{ env.latest_version }}/Libbox.xcframework.zip\"," >> Package.swift
           echo "      checksum: \"${{ env.file_checksum }}\"" >> Package.swift
           echo "    )" >> Package.swift
           echo "  ]" >> Package.swift
@@ -92,10 +93,10 @@ jobs:
       - name: Commit manifest & tag
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "Libbox Release ${{ github.event.inputs.version }}"
-          commit_user_name: "Ebrahim"
-          commit_user_email: "ebrahimtahernejad@gmail.com"
-          tagging_message: "${{ github.event.inputs.version }}"
+          commit_message: "Libbox Release ${{ env.latest_version }}"
+          commit_user_name: "liujixings"
+          commit_user_email: "${{ secrets.email }}"
+          tagging_message: "${{ env.latest_version }}"
           file_pattern: Package.swift
 
       # --- Publish GitHub release (softprops/action-gh-release@v2) ---
@@ -103,6 +104,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           draft: false
-          tag_name: ${{ github.event.inputs.version }}
-          body: "Compiled from source tag: ${{ github.event.inputs.tag }}"
+          tag_name: ${{ env.latest_version }}
+          body: "Compiled from source tag: ${{ env.tag }}"
           files: box/Libbox.xcframework.zip
