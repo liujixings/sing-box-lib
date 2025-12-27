@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
   repository_dispatch:
     types: [release]
-  push:
-    paths:
-      - version
+  # push:
+  #   paths:
+  #     - version
 
 jobs:
   release:
