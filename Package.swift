@@ -11,8 +11,8 @@ let package = Package(
   targets: [
     .binaryTarget(
       name: "Libbox",
-      url: "https://github.com/liujixings/sing-box-lib/releases/download/v1.12.23/Libbox.xcframework.zip",
-      checksum: "6a892b093317fecddc096b6374b9798053e8796f218a821a49ee249b360bf4d5"
+      url: "https://github.com/liujixings/sing-box-lib/releases/download/v1.13.0/Libbox.xcframework.zip",
+      checksum: "d48bc51ed47971bca913fcaba70e4353f004840e3323247a93fde06290dfb7ec"
     )
   ]
 )
