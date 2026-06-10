@@ -18,42 +18,68 @@ jobs:
 
       - name: Get latest sing-box version
         run: |
-          latest=$(curl -fsSL "https://api.github.com/repos/SagerNet/sing-box/releases?per_page=20" | python3 -c "import json,sys; releases=json.load(sys.stdin); print(next((r['tag_name'] for r in releases if not r.get('draft') and r.get('tag_name')), ''))")
-          if [ -z "$latest" ]; then
-            echo "failed to get latest version"
+          latest_release=$(curl -fsSL "https://api.github.com/repos/SagerNet/sing-box/releases/latest" | python3 -c "import json,sys; print(json.load(sys.stdin).get('tag_name', ''))")
+          latest_prerelease=$(curl -fsSL "https://api.github.com/repos/SagerNet/sing-box/releases?per_page=50" | python3 -c "import json,sys; releases=json.load(sys.stdin); print(next((r['tag_name'] for r in releases if r.get('prerelease') and not r.get('draft') and r.get('tag_name')), ''))")
+          if [ -z "$latest_release" ] || [ -z "$latest_prerelease" ]; then
+            echo "failed to get latest versions"
             exit 1
           fi
-          echo "latest_version=$latest" >> $GITHUB_ENV
+          echo "latest_release_version=$latest_release" >> $GITHUB_ENV
+          echo "latest_prerelease_version=$latest_prerelease" >> $GITHUB_ENV
 
-      - name: Compare with local version
+      - name: Compare release version
         run: |
           if [ -f version ]; then
-            current=$(cat version)
+            current_release=$(cat version)
           else
-            current=""
+            current_release=""
           fi
-          if [ "$current" != "${{ env.latest_version }}" ]; then
-            echo "update_needed=true" >> $GITHUB_ENV
+          if [ "$current_release" != "${{ env.latest_release_version }}" ]; then
+            echo "release_update_needed=true" >> $GITHUB_ENV
           else
-            echo "update_needed=false" >> $GITHUB_ENV
+            echo "release_update_needed=false" >> $GITHUB_ENV
           fi
 
-      - name: Update version file
-        if: env.update_needed == 'true'
+      - name: Compare prerelease version
         run: |
-          echo "${{ env.latest_version }}" > version
-  
+          if [ -f version-prerelease ]; then
+            current_prerelease=$(cat version-prerelease)
+          else
+            current_prerelease=""
+          fi
+          if [ "$current_prerelease" != "${{ env.latest_prerelease_version }}" ]; then
+            echo "prerelease_update_needed=true" >> $GITHUB_ENV
+          else
+            echo "prerelease_update_needed=false" >> $GITHUB_ENV
+          fi
+
+      - name: Update release version file
+        if: env.release_update_needed == 'true'
+        run: |
+          echo "${{ env.latest_release_version }}" > version
+
+      - name: Update prerelease version file
+        if: env.prerelease_update_needed == 'true'
+        run: |
+          echo "${{ env.latest_prerelease_version }}" > version-prerelease
+
       - name: Commit manifest & tag
-        if: env.update_needed == 'true'
+        if: env.release_update_needed == 'true' || env.prerelease_update_needed == 'true'
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "Sing-Box Release ${{ env.latest_version }}"
+          commit_message: "Sync versions release=${{ env.latest_release_version }} prerelease=${{ env.latest_prerelease_version }}"
           commit_user_name: "liujixings"
           commit_user_email: "liujixings@outlook.com"
-          file_pattern: version
+          file_pattern: version*
 
-      - name: Repository Dispatch
-        if: env.update_needed == 'true'
+      - name: Repository Dispatch (release)
+        if: env.release_update_needed == 'true'
         uses: peter-evans/repository-dispatch@v4
         with:
           event-type: release
+
+      - name: Repository Dispatch (prerelease)
+        if: env.prerelease_update_needed == 'true'
+        uses: peter-evans/repository-dispatch@v4
+        with:
+          event-type: prerelease

@@ -2,29 +2,8 @@ name: Release
 
 on:
   workflow_dispatch:
-    inputs:
-      tag_name:
-        description: "输入版本号 (例：1.12.0)"
-        required: false
-        type: string
-      prerelease:
-        description: "是否发布为测试版? (true/false)"
-        required: false
-        default: "false"
-        type: choice
-        options:
-          - "true"
-          - "false"
-      update_apple:
-        description: "是否重新拉取最新 sing-box-for-apple 仓库?"
-        required: false
-        default: "false"
-        type: choice
-        options:
-          - "true"
-          - "false"
   repository_dispatch:
-    types: [release]
+    types: [release, prerelease]
 
 jobs:
   release:
@@ -35,29 +14,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Resolve release inputs
+      - name: Resolve release target
         run: |
           set -euo pipefail
 
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.tag_name }}" ]; then
-            tag="v${{ github.event.inputs.tag_name }}"
-          elif [ -f version ]; then
-            tag="$(cat version)"
+          if [ "${{ github.event_name }}" = "repository_dispatch" ] && [ "${{ github.event.action }}" = "prerelease" ]; then
+            version_file="version-prerelease"
+            prerelease=true
           else
-            echo "No tag provided and version file is missing."
+            version_file="version"
+            prerelease=false
+          fi
+
+          if [ -f "$version_file" ]; then
+            tag="$(cat "$version_file")"
+          else
+            echo "Version file not found: $version_file"
             exit 1
           fi
 
           tag_no_v="${tag#v}"
           echo "tag=${tag}" >> "$GITHUB_ENV"
           echo "tag_no_v=${tag_no_v}" >> "$GITHUB_ENV"
-          echo "update_apple=${{ github.event.inputs.update_apple || 'false' }}" >> "$GITHUB_ENV"
-
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            prerelease="${{ github.event.inputs.prerelease || 'false' }}"
-          else
-            prerelease="$(curl -fsSL "https://api.github.com/repos/SagerNet/sing-box/releases/tags/${tag}" | python3 -c "import json,sys; print(str(json.load(sys.stdin).get('prerelease', False)).lower())" || echo false)"
-          fi
+          echo "update_apple=false" >> "$GITHUB_ENV"
           echo "prerelease=${prerelease}" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@v4
