@@ -77,7 +77,7 @@ jobs:
           export PATH="$PATH:$(go env GOPATH)/bin"
 
           go run ./cmd/internal/build_libbox -target apple -platform ios,tvos,macos
-          cp Libbox.xcframework clients/apple
+          cp -r Libbox.xcframework clients/apple/
           zip -ry ./Libbox.xcframework.zip ./Libbox.xcframework
 
           cd clients/apple
