@@ -2,95 +2,169 @@ name: Release
 
 on:
   workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "输入版本号 (例：1.12.0)"
+        required: false
+        type: string
+      prerelease:
+        description: "是否发布为测试版? (true/false)"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "true"
+          - "false"
+      update_apple:
+        description: "是否重新拉取最新 sing-box-for-apple 仓库?"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "true"
+          - "false"
   repository_dispatch:
     types: [release]
-  # push:
-  #   paths:
-  #     - version
 
 jobs:
   release:
     runs-on: macOS-15
-
-    # Allow the workflow to push tags/commits back to the repo
     permissions:
       contents: write
 
     steps:
-      # --- Check out main repository (actions/checkout@v4) ---
       - uses: actions/checkout@v4
 
-      - name: Get Sing-Box version
+      - name: Resolve release inputs
         run: |
-          if [ -f version ]; then
-            tag=$(cat version)
-            echo "tag=${tag}" >> $GITHUB_ENV
+          set -euo pipefail
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.tag_name }}" ]; then
+            tag="v${{ github.event.inputs.tag_name }}"
+          elif [ -f version ]; then
+            tag="$(cat version)"
+          else
+            echo "No tag provided and version file is missing."
+            exit 1
           fi
-      # --- Check out sing-box source at the requested tag ---
+
+          tag_no_v="${tag#v}"
+          echo "tag=${tag}" >> "$GITHUB_ENV"
+          echo "tag_no_v=${tag_no_v}" >> "$GITHUB_ENV"
+          echo "update_apple=${{ github.event.inputs.update_apple || 'false' }}" >> "$GITHUB_ENV"
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            prerelease="${{ github.event.inputs.prerelease || 'false' }}"
+          else
+            prerelease="$(curl -fsSL "https://api.github.com/repos/SagerNet/sing-box/releases/tags/${tag}" | python3 -c "import json,sys; print(str(json.load(sys.stdin).get('prerelease', False)).lower())" || echo false)"
+          fi
+          echo "prerelease=${prerelease}" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@v4
         with:
           repository: SagerNet/sing-box
           path: box
           ref: ${{ env.tag }}
 
-      # --- Set up Go (actions/setup-go@v5) ---
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.23"
+          go-version: "^1.25"
 
-      # --- Set up Node (actions/setup-node@v4) ---
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
+      - name: Setup Xcode stable
+        run: |
+          sudo xcode-select -s /Applications/Xcode.app
+          xcodebuild -version >> "$GITHUB_STEP_SUMMARY"
 
-      # --- Install gomobile toolchain ---
+      - name: Install ldid
+        run: brew install ldid
+
       - name: Setup Gomobile
         run: |
           cd box
           make lib_install
           gomobile init
 
-      # --- Build the iOS xcframework ---
       - name: Build xcframework
         run: |
           cd box
           go run ./cmd/internal/build_libbox -target apple -platform ios,tvos,macos
           zip -ry ./Libbox.xcframework.zip ./Libbox.xcframework
 
-      # --- Generate SHA‑256 checksum for the archive ---
+      - name: Build TIPA
+        run: |
+          set -euo pipefail
+          cd box
+
+          if [ "${{ env.update_apple }}" = "true" ]; then
+            rm -rf clients/apple
+            git clone --recurse-submodules --depth 1 https://github.com/SagerNet/sing-box-for-apple.git clients/apple
+          fi
+
+          go run ./cmd/internal/build_libbox -target apple -platform ios
+          mv Libbox.xcframework clients/apple
+
+          cd clients/apple
+
+          xcodebuild \
+            -project sing-box.xcodeproj \
+            -scheme SFI \
+            -destination "generic/platform=iOS" \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath DerivedData \
+            build \
+            STRIP_INSTALLED_PRODUCT=NO \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=YES \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            SWIFT_SERIALIZE_DEBUGGING_OPTIONS=NO
+
+          app_path="DerivedData/Build/Products/Release-iphoneos/sing-box.app"
+          ldid -SSFI/SFI.entitlements "$app_path/sing-box"
+          ldid -SExtension/Extension.entitlements "$app_path/PlugIns/Extension.appex/Extension"
+          ldid -SIntentsExtension/IntentsExtension.entitlements "$app_path/Extensions/IntentsExtension.appex/IntentsExtension"
+
+          mkdir -p packages/Payload
+          cp -rp "$app_path" packages/Payload
+          cd packages
+          zip -qr sing-box.tipa Payload
+          mv sing-box.tipa "${GITHUB_WORKSPACE}/sing-box-${{ env.tag_no_v }}.tipa"
+          cd "${GITHUB_WORKSPACE}"
+          echo -e "SHA256 Checksum:\n$(shasum -a 256 sing-box-${{ env.tag_no_v }}.tipa)" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Detect checksum
-        id: checksum
         shell: bash
         run: |
-          CHECKSUM=$(shasum -a 256 box/Libbox.xcframework.zip | awk '{print $1}')
-          echo "file_checksum=$CHECKSUM" >> "$GITHUB_ENV"
+          checksum=$(shasum -a 256 box/Libbox.xcframework.zip | awk '{print $1}')
+          echo "file_checksum=$checksum" >> "$GITHUB_ENV"
 
-      # --- Generate SwiftPM manifest that points at the new binary target ---
       - name: Update Package.swift
         shell: bash
         run: |
-          echo "// swift-tools-version: 5.7" > Package.swift
-          echo "" >> Package.swift
-          echo "import PackageDescription" >> Package.swift
-          echo "" >> Package.swift
-          echo "let package = Package(" >> Package.swift
-          echo "  name: \"Libbox\"," >> Package.swift
-          echo "  platforms: [.iOS(.v12)]," >> Package.swift
-          echo "  products: [" >> Package.swift
-          echo "    .library(name: \"Libbox\", targets: [\"Libbox\"])," >> Package.swift
-          echo "  ]," >> Package.swift
-          echo "  targets: [" >> Package.swift
-          echo "    .binaryTarget(" >> Package.swift
-          echo "      name: \"Libbox\"," >> Package.swift
-          echo "      url: \"https://github.com/liujixings/sing-box-lib/releases/download/${{ env.tag }}/Libbox.xcframework.zip\"," >> Package.swift
-          echo "      checksum: \"${{ env.file_checksum }}\"" >> Package.swift
-          echo "    )" >> Package.swift
-          echo "  ]" >> Package.swift
-          echo ")" >> Package.swift
+          cat > Package.swift << EOF
+          // swift-tools-version: 5.7
 
-      # --- Commit the manifest and tag the commit (stefanzweifel/git-auto-commit-action@v5) ---
+          import PackageDescription
+
+          let package = Package(
+            name: "Libbox",
+            platforms: [.iOS(.v12)],
+            products: [
+              .library(name: "Libbox", targets: ["Libbox"]),
+            ],
+            targets: [
+              .binaryTarget(
+                name: "Libbox",
+                url: "https://github.com/liujixings/sing-box-lib/releases/download/${{ env.tag }}/Libbox.xcframework.zip",
+                checksum: "${{ env.file_checksum }}"
+              )
+            ]
+          )
+          EOF
+
       - name: Commit manifest & tag
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
@@ -100,11 +174,14 @@ jobs:
           tagging_message: "${{ env.tag }}"
           file_pattern: Package.swift
 
-      # --- Publish GitHub release (softprops/action-gh-release@v2) ---
       - name: Upload Release
         uses: softprops/action-gh-release@v2
         with:
           draft: false
+          prerelease: ${{ env.prerelease == 'true' }}
           tag_name: ${{ env.tag }}
+          name: ${{ env.tag_no_v }}
           body: "Compiled from source tag: ${{ env.tag }}"
-          files: box/Libbox.xcframework.zip
+          files: |
+            box/Libbox.xcframework.zip
+            sing-box-*.tipa

@@ -18,7 +18,11 @@ jobs:
 
       - name: Get latest sing-box version
         run: |
-          latest=$(curl -s https://api.github.com/repos/SagerNet/sing-box/releases/latest \ | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+          latest=$(curl -fsSL "https://api.github.com/repos/SagerNet/sing-box/releases?per_page=20" | python3 -c "import json,sys; releases=json.load(sys.stdin); print(next((r['tag_name'] for r in releases if not r.get('draft') and r.get('tag_name')), ''))")
+          if [ -z "$latest" ]; then
+            echo "failed to get latest version"
+            exit 1
+          fi
           echo "latest_version=$latest" >> $GITHUB_ENV
 
       - name: Compare with local version
