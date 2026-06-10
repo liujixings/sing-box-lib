@@ -46,7 +46,7 @@ jobs:
           tag_no_v="${tag#v}"
           echo "tag=${tag}" >> "$GITHUB_ENV"
           echo "tag_no_v=${tag_no_v}" >> "$GITHUB_ENV"
-          echo "update_apple=true" >> "$GITHUB_ENV"
+          echo "update_apple=false" >> "$GITHUB_ENV"
           echo "prerelease=${prerelease}" >> "$GITHUB_ENV"
 
       - name: Setup Go
