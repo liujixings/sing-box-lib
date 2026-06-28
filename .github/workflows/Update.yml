@@ -48,7 +48,7 @@ jobs:
       - name: Update release variable
         if: steps.compare.outputs.release_update_needed == 'true'
         run: |
-          gh variable set RELEASE --body "${{ steps.latest.outputs.release }}"
+          gh variable set RELEASE --body "${{ steps.latest.outputs.release }}" --repo "liujixings/sing-box-lib"
 
       - name: Repository Dispatch (release)
         if: steps.compare.outputs.release_update_needed == 'true'
@@ -60,7 +60,7 @@ jobs:
       - name: Update prerelease variable
         if: steps.compare.outputs.prerelease_update_needed == 'true'
         run: |
-          gh variable set PRERELEASE --body "${{ steps.latest.outputs.prerelease }}"
+          gh variable set PRERELEASE --body "${{ steps.latest.outputs.prerelease }}" --repo "liujixings/sing-box-lib"
 
       - name: Repository Dispatch (prerelease)
         if: steps.compare.outputs.prerelease_update_needed == 'true'
