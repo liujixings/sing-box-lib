@@ -78,7 +78,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: "^1.25"
-          cache: true
+          #cache: true
 
       - name: Setup Xcode stable
         run: |
@@ -119,7 +119,7 @@ jobs:
           cp ./Libbox.xcframework.zip "$GITHUB_WORKSPACE/Libbox.xcframework.zip"
           mv Libbox.xcframework clients/apple
 
-          cd clients/apple
+          cd $HOME/sing-box/clients/apple
 
           xcodebuild \
             -project "$XCODEPROJ_NAME.xcodeproj" \
